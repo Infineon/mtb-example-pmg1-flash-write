@@ -8,7 +8,7 @@
 *
 *
 *******************************************************************************
-* Copyright 2021-2022, Cypress Semiconductor Corporation (an Infineon company) or
+* Copyright 2021-2023, Cypress Semiconductor Corporation (an Infineon company) or
 * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
 *
 * This software, including source code, documentation and related
@@ -41,14 +41,18 @@
 *******************************************************************************/
 #include "cybsp.h"
 #include "cy_pdl.h"
-
+#include <stdio.h>
+#include <inttypes.h>
 
 /*******************************************************************************
 * Macros
 *******************************************************************************/
 #define CY_ASSERT_FAILED          (0u)
 
-/*This array reserves space in the flash for one row of size
+/* Debug print macro to enable UART print */
+#define DEBUG_PRINT               (0u)
+
+/* This array reserves space in the flash for one row of size
  * CY_FLASH_SIZEOF_ROW. Explicit initialization is required so that memory is
  * allocated in flash instead of RAM. CY_ALIGN ensures that the array address
  * is an integer multiple of the row size so that the array occupies one
@@ -56,13 +60,42 @@
 const uint32_t row[CY_FLASH_SIZEOF_ROW]CY_ALIGN(CY_FLASH_SIZEOF_ROW) = {0};
 
 /* Array to hold the data to be written into flash */
-
 uint32_t Data[CY_FLASH_SIZEOF_ROW];
 
-/*******************************************************************************
-* Global Variable
-*******************************************************************************/
+#if DEBUG_PRINT
 cy_stc_scb_uart_context_t CYBSP_UART_context;
+
+/* Variable used for tracking the print status */
+volatile bool ENTER_LOOP = true;
+
+/*******************************************************************************
+* Function Name: check_status
+********************************************************************************
+* Summary:
+*  Prints the error message.
+*
+* Parameters:
+*  error_msg - message to print if any error encountered.
+*  status - status obtained after evaluation.
+*
+* Return:
+*  void
+*
+*******************************************************************************/
+void check_status(char *message, cy_rslt_t status)
+{
+    char error_msg[50];
+
+    sprintf(error_msg, "Error Code: 0x%08" PRIX32 "\n", status);
+
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "\r\n=====================================================\r\n");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "\nFAIL: ");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, message);
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "\r\n");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, error_msg);
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "\r\n=====================================================\r\n");
+}
+#endif
 
 /*******************************************************************************
 * Function Name: main
@@ -72,7 +105,6 @@ cy_stc_scb_uart_context_t CYBSP_UART_context;
 *  - initial setup of device
 *  - configure the SCB block as UART interface
 *  - prints out status of Flash operation via UART interface
-*  
 *
 * Parameters:
 *  none
@@ -96,9 +128,19 @@ int main(void)
         CY_ASSERT(CY_ASSERT_FAILED);
     }
 
+#if DEBUG_PRINT
     /* Configure and enable the UART peripheral */
     Cy_SCB_UART_Init(CYBSP_UART_HW, &CYBSP_UART_config, &CYBSP_UART_context);
     Cy_SCB_UART_Enable(CYBSP_UART_HW);
+
+    /* Sequence to clear screen */
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "\x1b[2J\x1b[;H");
+
+    /* Print "Flash write" */
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "****************** ");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "PMG1 MCU: Flash write");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "****************** \r\n\n");
+#endif
 
     /* Enable global interrupts */
     __enable_irq();
@@ -113,22 +155,40 @@ int main(void)
      * flash write is complete
      */
     flashWriteStatus = Cy_Flash_WriteRow((uint32_t)row, (const uint32_t *)Data);
+    if (flashWriteStatus != CY_FLASH_DRV_SUCCESS)
+    {
+#if DEBUG_PRINT
+        check_status("API Cy_Flash_WriteRow failed with error code", flashWriteStatus);
+#endif
+        CY_ASSERT(CY_ASSERT_FAILED);
+    }
 
     if((flashWriteStatus == CY_FLASH_DRV_SUCCESS) && (memcmp(Data,row, CY_FLASH_SIZEOF_ROW) == 0u))
     {
+#if DEBUG_PRINT
         /* Send a string over serial terminal */
         Cy_SCB_UART_PutString(CYBSP_UART_HW, "Flash write successful \r\n");
+#endif
     }
 
     else
     {
+#if DEBUG_PRINT
         /* Send a string over serial terminal */
-        Cy_SCB_UART_PutString(CYBSP_UART_HW, "Flash write failed \r\n");
+        Cy_SCB_UART_PutString(CYBSP_UART_HW, "Flash write data mismatch \r\n");
+#endif
     }
 
     for(;;)
     {
-        //Infinite Loop
+        /* Infinite Loop */
+#if DEBUG_PRINT
+        if (ENTER_LOOP)
+        {
+            Cy_SCB_UART_PutString(CYBSP_UART_HW, "Entered for loop\r\n");
+            ENTER_LOOP = false;
+        }
+#endif
     }
 }
 
